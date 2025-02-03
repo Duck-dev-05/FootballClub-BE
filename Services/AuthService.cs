@@ -8,6 +8,7 @@ using System.Text;
 using System.Collections.Generic;
 using System;
 using Google.Apis.Auth;
+using BCrypt.Net;
 
 namespace FootballClub_Backend.Services;
 
@@ -22,11 +23,49 @@ public class AuthService : IAuthService
         _configuration = configuration;
     }
 
+    public string GetRequesterRole(ClaimsPrincipal user)
+    {
+        return user.IsInRole("admin") ? "admin" : "user";
+    }
+
+    public async Task<(bool isSuccess, string token)> Register(RegisterRequest request, string requesterRole)
+    {
+        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
+            return (false, "Email already registered");
+
+        var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.Password);
+        var user = new User
+        {
+            Username = request.Username,
+            Email = request.Email,
+            Password = hashedPassword,
+            Role = requesterRole == "admin" && request.Role != null ? request.Role : "user",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
+
+        return (true, GenerateJwtToken(user));
+    }
+
+    public async Task<(bool isSuccess, string token)> Login(LoginRequest request)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+        if (user == null)
+            return (false, "Invalid credentials");
+
+        if (!BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
+            return (false, "Invalid credentials");
+
+        return (true, GenerateJwtToken(user));
+    }
+
     public async Task<User> GetUserByEmail(string email)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
         if (user == null)
-            throw new KeyNotFoundException($"User with email {email} not found");
+            throw new KeyNotFoundException("User not found");
         return user;
     }
 
@@ -34,158 +73,88 @@ public class AuthService : IAuthService
     {
         var user = await _context.Users.FindAsync(id);
         if (user == null)
-            throw new KeyNotFoundException($"User with ID {id} not found");
+            throw new KeyNotFoundException("User not found");
         return user;
     }
 
-    public string GetRequesterRole(ClaimsPrincipal user)
-    {
-        if (!user.Identity?.IsAuthenticated ?? true)
-            return "user";
-
-        var userRole = user.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Role)?.Value;
-        return userRole == "admin" ? "admin" : "user";
-    }
-
-    public async Task<(bool, string)> Register(RegisterRequest request, string requesterRole = "user")
-    {
-        var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
-        if (existingUser != null)
-            return (false, "User already exists.");
-
-        string role = "user";
-        if (requesterRole == "admin" && !string.IsNullOrEmpty(request.Role))
-        {
-            role = request.Role;
-        }
-
-        var user = new User
-        {
-            Username = request.Username,
-            Email = request.Email,
-            Password = BCrypt.Net.BCrypt.HashPassword(request.Password),
-            Role = role
-        };
-
-        _context.Users.Add(user);
-        await _context.SaveChangesAsync();
-
-        var token = GenerateToken(user);
-        return (true, token);
-    }
-
-    public async Task<(bool, string)> Login(LoginRequest request)
-    {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
-        if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
-            return (false, "Invalid credentials.");
-
-        var token = GenerateToken(user);
-        return (true, token);
-    }
-
-    public async Task<List<User>> GetAllUsersAsync()
+    public async Task<IEnumerable<User>> GetAllUsersAsync()
     {
         return await _context.Users.ToListAsync();
     }
 
-    public async Task<bool> UpdateUserRoleAsync(int userId, string newRole)
+    public async Task<bool> UpdateUserRoleAsync(int userId, string role)
     {
-        using var transaction = await _context.Database.BeginTransactionAsync();
-        try
-        {
-            var user = await _context.Users.FindAsync(userId);
-            if (user == null)
-                return false;
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+            return false;
 
-            // Log the role change
-            var auditLog = new UserAuditLog
-            {
-                UserId = userId,
-                Action = "ROLE_CHANGE",
-                PreviousState = System.Text.Json.JsonSerializer.Serialize(user),
-                Timestamp = DateTime.UtcNow
-            };
-            _context.UserAuditLogs.Add(auditLog);
-
-            user.Role = newRole;
-            _context.Users.Update(user);
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-            return true;
-        }
-        catch
-        {
-            await transaction.RollbackAsync();
-            throw;
-        }
+        user.Role = role;
+        await _context.SaveChangesAsync();
+        return true;
     }
 
-    public string GenerateToken(User user)
+    public string GenerateJwtToken(User user)
     {
-        var jwtKey = _configuration["Jwt:Key"];
-        if (string.IsNullOrEmpty(jwtKey))
-        {
-            throw new InvalidOperationException("JWT Token key is not configured");
-        }
-
-        var claims = new List<Claim>
-        {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Name, user.Username),
-            new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role)
-        };
-
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
-        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var jwtSettings = _configuration.GetSection("JWT");
+        var key = Encoding.ASCII.GetBytes(jwtSettings["Key"] ?? throw new InvalidOperationException("JWT Key is not configured"));
 
         var tokenDescriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity(claims),
-            Issuer = _configuration["Jwt:Issuer"],
-            Audience = _configuration["Jwt:Audience"],
-            Expires = DateTime.UtcNow.AddDays(1),
-            SigningCredentials = creds
+            Subject = new ClaimsIdentity(new[]
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Email, user.Email),
+                new Claim(ClaimTypes.Role, user.Role),
+                new Claim(ClaimTypes.Name, user.Username)
+            }),
+            Expires = DateTime.UtcNow.AddHours(24),
+            Issuer = jwtSettings["Issuer"],
+            Audience = jwtSettings["Audience"],
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(key),
+                SecurityAlgorithms.HmacSha256Signature)
         };
 
         var tokenHandler = new JwtSecurityTokenHandler();
         var token = tokenHandler.CreateToken(tokenDescriptor);
-
         return tokenHandler.WriteToken(token);
+    }
+
+    public async Task<User> GetOrCreateFacebookUserAsync(FacebookUserData userData)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == userData.Email);
+        if (user != null)
+            return user;
+
+        user = new User
+        {
+            Username = userData.Name,
+            Email = userData.Email,
+            Password = string.Empty, // Facebook users don't need a password
+            Role = "user",
+            CreatedAt = DateTime.UtcNow,
+            FacebookId = userData.Id
+        };
+
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
+        return user;
     }
 
     public async Task<User> GetOrCreateGoogleUser(GoogleJsonWebSignature.Payload payload)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == payload.Email);
-        if (user != null) return user;
+        if (user != null)
+            return user;
 
         user = new User
         {
-            Email = payload.Email,
             Username = payload.Name,
-            Password = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()), // Random password
+            Email = payload.Email,
+            Password = string.Empty, // Google users don't need a password
             Role = "user",
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _context.Users.Add(user);
-        await _context.SaveChangesAsync();
-        return user;
-    }
-
-    public async Task<User> GetOrCreateFacebookUser(FacebookUserData userData)
-    {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == userData.Email);
-        if (user != null) return user;
-
-        user = new User
-        {
-            Email = userData.Email,
-            Username = userData.Name,
-            Password = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()), // Random password
-            Role = "user",
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            GoogleId = payload.Subject
         };
 
         _context.Users.Add(user);

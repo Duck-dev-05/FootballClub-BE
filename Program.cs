@@ -61,13 +61,17 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
-        builder => builder
-            .WithOrigins(
-                "http://localhost:3000",
-                "https://localhost:3000"
-            )
-            .AllowAnyMethod()
-            .AllowAnyHeader());
+        builder =>
+        {
+            builder
+                .WithOrigins(
+                    "http://localhost:3000",
+                    "http://localhost:5299"
+                )
+                .AllowAnyMethod()
+                .AllowAnyHeader()
+                .AllowCredentials();
+        });
 });
 
 // Add DbContext
@@ -75,28 +79,26 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Configure JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"];
-if (string.IsNullOrEmpty(jwtKey))
-{
-    throw new InvalidOperationException("JWT Token key is not configured");
-}
+var jwtSettings = builder.Configuration.GetSection("JWT");
+var key = Encoding.ASCII.GetBytes(jwtSettings["Key"] ?? throw new InvalidOperationException("JWT Key is not configured"));
 
-builder.Services.AddAuthentication(options =>
+builder.Services.AddAuthentication(x =>
 {
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    x.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    x.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
-.AddJwtBearer(options =>
+.AddJwtBearer(x =>
 {
-    options.TokenValidationParameters = new TokenValidationParameters
+    x.RequireHttpsMetadata = false;
+    x.SaveToken = true;
+    x.TokenValidationParameters = new TokenValidationParameters
     {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(key),
         ValidateIssuer = true,
         ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-        ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        ValidIssuer = jwtSettings["Issuer"],
+        ValidAudience = jwtSettings["Audience"]
     };
 });
 
@@ -108,6 +110,10 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPlayerService, PlayerService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IFacebookAuthService, FacebookAuthService>();
+
+// Add HttpClient
+builder.Services.AddHttpClient();
 
 var app = builder.Build();
 
@@ -117,12 +123,14 @@ using (var scope = app.Services.CreateScope())
     var services = scope.ServiceProvider;
     try
     {
+        var context = services.GetRequiredService<ApplicationDbContext>();
+        await context.Database.MigrateAsync();
         await DbInitializer.Initialize(services);
     }
     catch (Exception ex)
     {
         var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "An error occurred while seeding the database.");
+        logger.LogError(ex, "An error occurred while initializing the database.");
     }
 }
 

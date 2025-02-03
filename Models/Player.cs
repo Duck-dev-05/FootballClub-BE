@@ -20,7 +20,7 @@ public class Player
 
     public bool IsAvailable { get; set; } = true;
 
-    public List<Booking> Bookings { get; set; } = new();
+    public ICollection<Booking> Bookings { get; set; } = new List<Booking>();
 }
 
 public class PlayerDto

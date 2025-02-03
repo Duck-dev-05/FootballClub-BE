@@ -1,21 +1,19 @@
+using System.Security.Claims;
 using FootballClub_Backend.Models;
 using Google.Apis.Auth;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using System.Security.Claims;
 
 namespace FootballClub_Backend.Services;
 
 public interface IAuthService
 {
-    Task<(bool success, string token)> Register(RegisterRequest request, string requesterRole = "user");
-    Task<(bool success, string token)> Login(LoginRequest request);
+    string GetRequesterRole(ClaimsPrincipal user);
+    Task<(bool isSuccess, string token)> Register(RegisterRequest request, string requesterRole);
+    Task<(bool isSuccess, string token)> Login(LoginRequest request);
     Task<User> GetUserByEmail(string email);
     Task<User> GetUserById(int id);
-    Task<List<User>> GetAllUsersAsync();
-    Task<bool> UpdateUserRoleAsync(int userId, string newRole);
-    string GenerateToken(User user);
+    Task<IEnumerable<User>> GetAllUsersAsync();
+    Task<bool> UpdateUserRoleAsync(int userId, string role);
+    string GenerateJwtToken(User user);
+    Task<User> GetOrCreateFacebookUserAsync(FacebookUserData userData);
     Task<User> GetOrCreateGoogleUser(GoogleJsonWebSignature.Payload payload);
-    Task<User> GetOrCreateFacebookUser(FacebookUserData userData);
-    string GetRequesterRole(ClaimsPrincipal user);
 } 

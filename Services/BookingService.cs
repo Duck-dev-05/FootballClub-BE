@@ -30,9 +30,9 @@ public class BookingService : IBookingService
             .Select(b => b.TimeSlot)
             .ToListAsync();
 
-        var allSlots = new[]
+        var allSlots = new List<string>
         {
-            "09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00"
+            "09:00", "10:00", "11:00", "14:00", "15:00", "16:00"
         };
 
         return allSlots.Except(bookedSlots);
@@ -43,7 +43,6 @@ public class BookingService : IBookingService
         var booking = new Booking
         {
             PlayerId = request.PlayerId,
-            UserId = request.UserId,
             Date = request.Date,
             TimeSlot = request.TimeSlot
         };

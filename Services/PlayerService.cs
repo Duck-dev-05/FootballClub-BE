@@ -40,6 +40,8 @@ public class PlayerService : IPlayerService
         existingPlayer.Position = player.Position;
         existingPlayer.ImageUrl = player.ImageUrl;
         existingPlayer.Description = player.Description;
+        existingPlayer.Price = player.Price;
+        existingPlayer.IsAvailable = player.IsAvailable;
 
         await _context.SaveChangesAsync();
         return existingPlayer;

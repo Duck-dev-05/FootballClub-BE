@@ -19,6 +19,10 @@ public class User
     public string Role { get; set; } = "user";
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    
+    public string? FacebookId { get; set; }
+    
+    public string? GoogleId { get; set; }
 }
 
 public class UserDto
@@ -27,30 +31,4 @@ public class UserDto
     public string Username { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string Role { get; set; } = string.Empty;
-}
-
-public class LoginRequest
-{
-    [Required]
-    [EmailAddress]
-    public string Email { get; set; } = string.Empty;
-    
-    [Required]
-    public string Password { get; set; } = string.Empty;
-}
-
-public class RegisterRequest
-{
-    [Required]
-    public string Username { get; set; } = string.Empty;
-    
-    [Required]
-    [EmailAddress]
-    public string Email { get; set; } = string.Empty;
-    
-    [Required]
-    [MinLength(6)]
-    public string Password { get; set; } = string.Empty;
-
-    public string? Role { get; set; }
 } 

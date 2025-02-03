@@ -15,11 +15,15 @@ public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
     private readonly ILogger<AuthController> _logger;
+    private readonly IFacebookAuthService _facebookAuthService;
+    private readonly IConfiguration _configuration;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+    public AuthController(IAuthService authService, ILogger<AuthController> logger, IFacebookAuthService facebookAuthService, IConfiguration configuration)
     {
         _authService = authService;
         _logger = logger;
+        _facebookAuthService = facebookAuthService;
+        _configuration = configuration;
     }
 
     [HttpPost("register")]
@@ -59,12 +63,9 @@ public class AuthController : ControllerBase
     {
         try
         {
-            if (!ModelState.IsValid)
-                return BadRequest(new ErrorResponse("Validation Error", "Invalid login credentials"));
-
             var (success, token) = await _authService.Login(request);
             if (!success)
-                return Unauthorized(new ErrorResponse("Authentication Failed", "Invalid credentials"));
+                return Unauthorized(new { message = "Invalid credentials" });
 
             var user = await _authService.GetUserByEmail(request.Email);
             return Ok(new AuthResponse 
@@ -79,15 +80,10 @@ public class AuthController : ControllerBase
                 }
             });
         }
-        catch (KeyNotFoundException ex)
-        {
-            _logger.LogWarning(ex, "User not found: {Email}", request.Email);
-            return NotFound(new ErrorResponse("Not Found", ex.Message));
-        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during login for user {Email}", request.Email);
-            return StatusCode(500, new ErrorResponse("Internal Server Error", "Login process failed"));
+            _logger.LogError(ex, "Login failed for user {Email}", request.Email);
+            return StatusCode(500, new { message = "An error occurred during login" });
         }
     }
 
@@ -143,26 +139,22 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("google")]
-    public async Task<ActionResult<AuthResponse>> GoogleLogin(GoogleAuthRequest request)
+    public async Task<ActionResult<AuthResponse>> GoogleLogin([FromBody] GoogleAuthRequest request)
     {
         try
         {
-            if (!ModelState.IsValid)
-                return BadRequest(new ErrorResponse("Validation Error", "Invalid Google credentials"));
+            var settings = new GoogleJsonWebSignature.ValidationSettings
+            {
+                Audience = new[] { _configuration["Authentication:Google:ClientId"] }
+            };
 
-            var result = await SocialAuthHelper.ValidateGoogleToken(request.Credential);
-            if (result?.Result is not OkObjectResult okResult || okResult.Value == null)
-                return BadRequest(new ErrorResponse("Validation Error", "Invalid Google token"));
-
-            var payload = okResult.Value as GoogleJsonWebSignature.Payload;
-            if (payload == null)
-                return BadRequest(new ErrorResponse("Validation Error", "Invalid Google payload"));
-
+            var payload = await GoogleJsonWebSignature.ValidateAsync(request.Credential, settings);
+            
             var user = await _authService.GetOrCreateGoogleUser(payload);
-            var token = _authService.GenerateToken(user);
+            var token = _authService.GenerateJwtToken(user);
 
-            return Ok(new AuthResponse 
-            { 
+            return Ok(new AuthResponse
+            {
                 Token = token,
                 User = new UserDto
                 {
@@ -175,32 +167,25 @@ public class AuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during Google authentication");
-            return StatusCode(500, new ErrorResponse("Internal Server Error", "Google authentication failed"));
+            _logger.LogError(ex, "Google authentication failed");
+            return StatusCode(500, new { message = "An error occurred during Google authentication" });
         }
     }
 
     [HttpPost("facebook")]
-    public async Task<ActionResult<AuthResponse>> FacebookLogin(FacebookAuthRequest request)
+    public async Task<ActionResult<AuthResponse>> FacebookLogin([FromBody] FacebookAuthRequest request)
     {
         try
         {
-            if (!ModelState.IsValid)
-                return BadRequest(new ErrorResponse("Validation Error", "Invalid Facebook credentials"));
+            var fbValidation = await _facebookAuthService.ValidateTokenAsync(request.AccessToken);
+            if (!fbValidation.IsValid || fbValidation.UserData == null)
+                return Unauthorized(new { message = "Invalid Facebook token" });
 
-            var result = await SocialAuthHelper.ValidateFacebookToken(request.AccessToken);
-            if (result?.Result is not OkObjectResult okResult || okResult.Value == null)
-                return BadRequest(new ErrorResponse("Validation Error", "Invalid Facebook token"));
+            var user = await _authService.GetOrCreateFacebookUserAsync(fbValidation.UserData);
+            var token = _authService.GenerateJwtToken(user);
 
-            var userData = okResult.Value as FacebookUserData;
-            if (userData == null)
-                return BadRequest(new ErrorResponse("Validation Error", "Invalid Facebook user data"));
-
-            var user = await _authService.GetOrCreateFacebookUser(userData);
-            var token = _authService.GenerateToken(user);
-
-            return Ok(new AuthResponse 
-            { 
+            return Ok(new AuthResponse
+            {
                 Token = token,
                 User = new UserDto
                 {
@@ -213,8 +198,8 @@ public class AuthController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during Facebook authentication");
-            return StatusCode(500, new ErrorResponse("Internal Server Error", "Facebook authentication failed"));
+            _logger.LogError(ex, "Facebook authentication failed");
+            return StatusCode(500, new { message = "An error occurred during Facebook authentication" });
         }
     }
 } 
