@@ -6,6 +6,7 @@ using System.Security.Claims;
 using System.Linq;
 using FootballClub_Backend.Helpers;
 using Google.Apis.Auth;
+using System.ComponentModel.DataAnnotations;
 
 namespace FootballClub_Backend.Controllers;
 
@@ -139,17 +140,29 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("google")]
+    [AllowAnonymous]
     public async Task<ActionResult<AuthResponse>> GoogleLogin([FromBody] GoogleAuthRequest request)
     {
         try
         {
+            _logger.LogInformation("Starting Google authentication process");
+
+            if (string.IsNullOrEmpty(request.Credential))
+            {
+                _logger.LogWarning("Google credential is missing");
+                return BadRequest(new { message = "Google credential is required" });
+            }
+
             var settings = new GoogleJsonWebSignature.ValidationSettings
             {
                 Audience = new[] { _configuration["Authentication:Google:ClientId"] }
             };
 
+            _logger.LogInformation("Validating Google token");
             var payload = await GoogleJsonWebSignature.ValidateAsync(request.Credential, settings);
             
+            _logger.LogInformation("Google token validated successfully for email: {Email}", payload.Email);
+
             var user = await _authService.GetOrCreateGoogleUser(payload);
             var token = _authService.GenerateJwtToken(user);
 
@@ -165,9 +178,14 @@ public class AuthController : ControllerBase
                 }
             });
         }
+        catch (InvalidJwtException ex)
+        {
+            _logger.LogError(ex, "Invalid Google token");
+            return BadRequest(new { message = "Invalid Google token" });
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Google authentication failed");
+            _logger.LogError(ex, "Google authentication failed: {Message}", ex.Message);
             return StatusCode(500, new { message = "An error occurred during Google authentication" });
         }
     }
@@ -202,4 +220,10 @@ public class AuthController : ControllerBase
             return StatusCode(500, new { message = "An error occurred during Facebook authentication" });
         }
     }
+}
+
+public class GoogleAuthRequest
+{
+    [Required]
+    public string Credential { get; set; } = string.Empty;
 } 

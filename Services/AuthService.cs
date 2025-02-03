@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System;
 using Google.Apis.Auth;
 using BCrypt.Net;
+using Microsoft.Extensions.Logging;
 
 namespace FootballClub_Backend.Services;
 
@@ -16,11 +17,13 @@ public class AuthService : IAuthService
 {
     private readonly ApplicationDbContext _context;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<AuthService> _logger;
 
-    public AuthService(ApplicationDbContext context, IConfiguration configuration)
+    public AuthService(ApplicationDbContext context, IConfiguration configuration, ILogger<AuthService> logger)
     {
         _context = context;
         _configuration = configuration;
+        _logger = logger;
     }
 
     public string GetRequesterRole(ClaimsPrincipal user)
@@ -144,21 +147,29 @@ public class AuthService : IAuthService
     public async Task<User> GetOrCreateGoogleUser(GoogleJsonWebSignature.Payload payload)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == payload.Email);
-        if (user != null)
-            return user;
-
-        user = new User
+        
+        if (user == null)
         {
-            Username = payload.Name,
-            Email = payload.Email,
-            Password = string.Empty, // Google users don't need a password
-            Role = "user",
-            CreatedAt = DateTime.UtcNow,
-            GoogleId = payload.Subject
-        };
+            // Create new user
+            user = new User
+            {
+                Username = payload.Name,
+                Email = payload.Email,
+                Password = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()), // Random password
+                Role = "user",
+                CreatedAt = DateTime.UtcNow
+            };
 
-        _context.Users.Add(user);
-        await _context.SaveChangesAsync();
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+            
+            _logger.LogInformation("Created new user from Google login: {Email}", payload.Email);
+        }
+        else
+        {
+            _logger.LogInformation("Existing user logged in via Google: {Email}", payload.Email);
+        }
+
         return user;
     }
 } 

@@ -57,17 +57,14 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// Add CORS
+// Add CORS configuration
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
         builder =>
         {
             builder
-                .WithOrigins(
-                    "http://localhost:3000",
-                    "http://localhost:5299"
-                )
+                .WithOrigins("http://localhost:3000")
                 .AllowAnyMethod()
                 .AllowAnyHeader()
                 .AllowCredentials();
@@ -118,20 +115,40 @@ builder.Services.AddHttpClient();
 var app = builder.Build();
 
 // Initialize the database
-using (var scope = app.Services.CreateScope())
+try
 {
-    var services = scope.ServiceProvider;
-    try
+    using (var scope = app.Services.CreateScope())
     {
+        var services = scope.ServiceProvider;
         var context = services.GetRequiredService<ApplicationDbContext>();
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        
+        logger.LogInformation("Attempting to ensure database exists");
+        
+        // Ensure database exists
+        await context.Database.EnsureCreatedAsync();
+        
+        // Apply any pending migrations
         await context.Database.MigrateAsync();
+        
+        logger.LogInformation("Database initialization completed");
+        
+        // Seed initial data
         await DbInitializer.Initialize(services);
     }
-    catch (Exception ex)
-    {
-        var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "An error occurred while initializing the database.");
-    }
+}
+catch (Exception ex)
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogError(ex, "An error occurred while initializing the database");
+    
+    // Log connection string for debugging
+    var configuration = app.Services.GetRequiredService<IConfiguration>();
+    var connectionString = configuration.GetConnectionString("DefaultConnection");
+    logger.LogInformation("Connection string: {ConnectionString}", connectionString);
+    
+    // Continue running the application
+    logger.LogWarning("Application continuing despite database initialization failure");
 }
 
 // Configure the HTTP request pipeline.
@@ -141,27 +158,22 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Football Club API V1");
-        c.RoutePrefix = string.Empty; // Serve the Swagger UI at the root URL
+        c.RoutePrefix = string.Empty;
     });
-    // Don't use HTTPS redirection in development
-}
-else
-{
-    app.UseHttpsRedirection();
 }
 
-// Add HTTPS configuration
-app.UseForwardedHeaders(new ForwardedHeadersOptions
-{
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-});
+// Important: Order matters for middleware
+app.UseRouting();
 
+// Use CORS before auth middleware
 app.UseCors("AllowReactApp");
+
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapControllers();
 
-// Add error handling middleware
+app.MapControllers();
+app.MapGet("/", () => Results.Redirect("/swagger"));
+
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.Run();
