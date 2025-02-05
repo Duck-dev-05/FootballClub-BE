@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using FootballClub_Backend.Models;
+using FootballClub_Backend.Models.Entities;
 
 namespace FootballClub_Backend.Data;
 
@@ -18,6 +18,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<Ticket> Tickets { get; set; }
     public DbSet<Match> Matches { get; set; }
     public DbSet<Gallery> Gallery { get; set; }
+    public DbSet<CalendarEvent> CalendarEvents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -69,5 +70,11 @@ public class ApplicationDbContext : DbContext
             .WithMany()
             .HasForeignKey(t => t.UserId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<CalendarEvent>()
+            .HasOne(e => e.Creator)
+            .WithMany()
+            .HasForeignKey(e => e.CreatedBy)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 } 

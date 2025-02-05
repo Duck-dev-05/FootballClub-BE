@@ -1,66 +1,76 @@
 using Microsoft.AspNetCore.Mvc;
 using FootballClub_Backend.Services;
-using FootballClub_Backend.Models;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 using System.Linq;
 using FootballClub_Backend.Helpers;
 using Google.Apis.Auth;
 using System.ComponentModel.DataAnnotations;
+using FootballClub_Backend.Exceptions;
+using System;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using FootballClub_Backend.Models.Requests;
+using FootballClub_Backend.Models.Responses;
+using FootballClub_Backend.Models.Entities;
 
 namespace FootballClub_Backend.Controllers;
 
 [Route("api/[controller]")]
 [ApiController]
-public class AuthController : ControllerBase
+[AllowAnonymous]
+public class AuthController : ApiController
 {
     private readonly IAuthService _authService;
     private readonly ILogger<AuthController> _logger;
     private readonly IFacebookAuthService _facebookAuthService;
     private readonly IConfiguration _configuration;
+    private readonly ISocialAuthService _socialAuthService;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger, IFacebookAuthService facebookAuthService, IConfiguration configuration)
+    public AuthController(
+        IAuthService authService,
+        ILogger<AuthController> logger,
+        IFacebookAuthService facebookAuthService,
+        IConfiguration configuration,
+        ISocialAuthService socialAuthService)
     {
-        _authService = authService;
-        _logger = logger;
-        _facebookAuthService = facebookAuthService;
-        _configuration = configuration;
+        _authService = authService ?? throw new ArgumentNullException(nameof(authService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _facebookAuthService = facebookAuthService ?? throw new ArgumentNullException(nameof(facebookAuthService));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        _socialAuthService = socialAuthService ?? throw new ArgumentNullException(nameof(socialAuthService));
     }
 
     [HttpPost("register")]
-    public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request)
+    public async Task<ActionResult<Models.Responses.AuthResponse>> Register(Models.Requests.RegisterRequest request)
     {
         try
         {
             if (!ModelState.IsValid)
-                return BadRequest(new ErrorResponse("Validation Error", "Invalid registration data"));
+                return BadRequest(new { message = "Invalid registration data" });
 
-            string requesterRole = _authService.GetRequesterRole(User);
+            string requesterRole = GetUserRole();
             var (success, token) = await _authService.Register(request, requesterRole);
             
             if (!success)
-                return BadRequest(new ErrorResponse("Registration Failed", token));
+                return BadRequest(new { message = "Registration failed" });
 
-            return Ok(new AuthResponse 
+            var user = await _authService.GetUserByEmail(request.Email);
+            return HandleResult(new Models.Responses.AuthResponse 
             { 
                 Token = token,
-                User = new UserDto
-                {
-                    Username = request.Username,
-                    Email = request.Email,
-                    Role = requesterRole
-                }
+                User = new Models.Responses.UserDto(user)
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during registration for user {Email}", request.Email);
-            return StatusCode(500, new ErrorResponse("Internal Server Error", "Registration process failed"));
+            _logger.LogError(ex, "Registration failed for {Email}", request.Email);
+            return HandleError(ex, "Registration failed");
         }
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<AuthResponse>> Login(LoginRequest request)
+    public async Task<ActionResult<Models.Responses.AuthResponse>> Login(Models.Requests.LoginRequest request)
     {
         try
         {
@@ -69,161 +79,97 @@ public class AuthController : ControllerBase
                 return Unauthorized(new { message = "Invalid credentials" });
 
             var user = await _authService.GetUserByEmail(request.Email);
-            return Ok(new AuthResponse 
+            return HandleResult(new Models.Responses.AuthResponse 
             { 
                 Token = token,
-                User = new UserDto
-                {
-                    Id = user.Id,
-                    Username = user.Username,
-                    Email = user.Email,
-                    Role = user.Role
-                }
+                User = new Models.Responses.UserDto(user)
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Login failed for user {Email}", request.Email);
-            return StatusCode(500, new { message = "An error occurred during login" });
+            _logger.LogError(ex, "Login failed for {Email}", request.Email);
+            return HandleError(ex, "Login failed");
         }
     }
 
-    [Authorize(Roles = "admin")]
     [HttpGet("users")]
-    public async Task<ActionResult<IEnumerable<UserDto>>> GetAllUsers()
+    [Authorize(Roles = "admin")]
+    public async Task<ActionResult<IEnumerable<Models.Responses.UserDto>>> GetUsers()
     {
         try
         {
             var users = await _authService.GetAllUsersAsync();
-            return Ok(users.Select(u => new UserDto
-            {
-                Id = u.Id,
-                Username = u.Username,
-                Email = u.Email,
-                Role = u.Role
-            }));
+            return HandleResult(users.Select(u => new Models.Responses.UserDto(u)));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving users list");
-            return StatusCode(500, new ErrorResponse("Internal Server Error", "Failed to retrieve users"));
+            return HandleError(ex, "Failed to retrieve users");
         }
     }
 
     [Authorize(Roles = "admin")]
     [HttpPut("users/{id}/role")]
-    public async Task<ActionResult<UserDto>> UpdateUserRole(int id, RoleUpdateRequest request)
+    public async Task<ActionResult<Models.Responses.UserDto>> UpdateUserRole(int id, Models.Requests.RoleUpdateRequest request)
     {
         try
         {
             if (!ModelState.IsValid)
-                return BadRequest(new ErrorResponse("Validation Error", "Invalid role data"));
+                return BadRequest(new { message = "Invalid role data" });
 
             var success = await _authService.UpdateUserRoleAsync(id, request.Role);
             if (!success)
-                return NotFound(new ErrorResponse("Not Found", "User not found"));
+                return NotFound(new { message = "User not found" });
 
             var updatedUser = await _authService.GetUserById(id);
-            return Ok(new UserDto
-            {
-                Id = updatedUser.Id,
-                Username = updatedUser.Username,
-                Email = updatedUser.Email,
-                Role = updatedUser.Role
-            });
+            return HandleResult(new Models.Responses.UserDto(updatedUser));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating role for user {UserId}", id);
-            return StatusCode(500, new ErrorResponse("Internal Server Error", "Role update failed"));
+            return HandleError(ex, "Role update failed");
         }
     }
 
     [HttpPost("google")]
-    [AllowAnonymous]
-    public async Task<ActionResult<AuthResponse>> GoogleLogin([FromBody] GoogleAuthRequest request)
+    public async Task<ActionResult<Models.Responses.AuthResponse>> GoogleLogin([FromBody] Models.Requests.GoogleAuthRequest request)
     {
         try
         {
-            _logger.LogInformation("Starting Google authentication process");
-
-            if (string.IsNullOrEmpty(request.Credential))
-            {
-                _logger.LogWarning("Google credential is missing");
-                return BadRequest(new { message = "Google credential is required" });
-            }
-
-            var settings = new GoogleJsonWebSignature.ValidationSettings
-            {
-                Audience = new[] { _configuration["Authentication:Google:ClientId"] }
-            };
-
-            _logger.LogInformation("Validating Google token");
-            var payload = await GoogleJsonWebSignature.ValidateAsync(request.Credential, settings);
-            
-            _logger.LogInformation("Google token validated successfully for email: {Email}", payload.Email);
-
-            var user = await _authService.GetOrCreateGoogleUser(payload);
+            var user = await _socialAuthService.AuthenticateGoogleUserAsync(request.Credential);
             var token = _authService.GenerateJwtToken(user);
 
-            return Ok(new AuthResponse
+            return HandleResult(new Models.Responses.AuthResponse
             {
                 Token = token,
-                User = new UserDto
-                {
-                    Id = user.Id,
-                    Username = user.Username,
-                    Email = user.Email,
-                    Role = user.Role
-                }
+                User = new Models.Responses.UserDto(user)
             });
-        }
-        catch (InvalidJwtException ex)
-        {
-            _logger.LogError(ex, "Invalid Google token");
-            return BadRequest(new { message = "Invalid Google token" });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Google authentication failed: {Message}", ex.Message);
-            return StatusCode(500, new { message = "An error occurred during Google authentication" });
+            _logger.LogError(ex, "Google authentication failed");
+            return HandleError(ex);
         }
     }
 
     [HttpPost("facebook")]
-    public async Task<ActionResult<AuthResponse>> FacebookLogin([FromBody] FacebookAuthRequest request)
+    public async Task<ActionResult<Models.Responses.AuthResponse>> FacebookLogin([FromBody] Models.Requests.FacebookAuthRequest request)
     {
         try
         {
-            var fbValidation = await _facebookAuthService.ValidateTokenAsync(request.AccessToken);
-            if (!fbValidation.IsValid || fbValidation.UserData == null)
-                return Unauthorized(new { message = "Invalid Facebook token" });
-
-            var user = await _authService.GetOrCreateFacebookUserAsync(fbValidation.UserData);
+            var user = await _socialAuthService.AuthenticateFacebookUserAsync(request.AccessToken);
             var token = _authService.GenerateJwtToken(user);
 
-            return Ok(new AuthResponse
+            return HandleResult(new Models.Responses.AuthResponse
             {
                 Token = token,
-                User = new UserDto
-                {
-                    Id = user.Id,
-                    Username = user.Username,
-                    Email = user.Email,
-                    Role = user.Role
-                }
+                User = new Models.Responses.UserDto(user)
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Facebook authentication failed");
-            return StatusCode(500, new { message = "An error occurred during Facebook authentication" });
+            return HandleError(ex);
         }
     }
-}
-
-public class GoogleAuthRequest
-{
-    [Required]
-    public string Credential { get; set; } = string.Empty;
 } 

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using System.IO;
 using FootballClub_Backend.Models;
 using Microsoft.AspNetCore.Mvc;
+using FootballClub_Backend.Exceptions;
 
 namespace FootballClub_Backend.Helpers;
 
@@ -23,7 +24,7 @@ public static class SocialAuthHelper
             .Build();
     }
 
-    public static async Task<ActionResult<GoogleJsonWebSignature.Payload>> ValidateGoogleToken(string token)
+    public static async Task<GoogleJsonWebSignature.Payload> ValidateGoogleToken(string token)
     {
         try
         {
@@ -34,31 +35,31 @@ public static class SocialAuthHelper
             
             var payload = await GoogleJsonWebSignature.ValidateAsync(token, settings);
             if (payload == null)
-                return new BadRequestObjectResult("Invalid Google token");
+                throw new AuthenticationException("Invalid Google token");
             
-            return new OkObjectResult(payload);
+            return payload;
         }
         catch (Exception)
         {
-            return new BadRequestObjectResult("Failed to validate Google token");
+            throw new AuthenticationException("Failed to validate Google token");
         }
     }
 
-    public static async Task<ActionResult<FacebookUserData>> ValidateFacebookToken(string accessToken)
+    public static async Task<FacebookUserData> ValidateFacebookToken(string accessToken)
     {
         var appId = _configuration["Authentication:Facebook:AppId"];
-        var client = new HttpClient();
+        using var client = new HttpClient();
         var response = await client.GetAsync(
             $"https://graph.facebook.com/me?fields=id,name,email&access_token={accessToken}&app_id={appId}");
         
         if (!response.IsSuccessStatusCode)
-            return new BadRequestObjectResult("Invalid Facebook token");
+            throw new AuthenticationException("Invalid Facebook token");
 
         var content = await response.Content.ReadAsStringAsync();
         var userData = JsonSerializer.Deserialize<FacebookUserData>(content);
         if (userData == null)
-            return new BadRequestObjectResult("Failed to deserialize user data");
+            throw new AuthenticationException("Failed to deserialize user data");
         
-        return new OkObjectResult(userData);
+        return userData;
     }
 } 

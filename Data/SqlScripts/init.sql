@@ -109,4 +109,21 @@ BEGIN
         Timestamp DATETIME NOT NULL DEFAULT GETDATE(),
         FOREIGN KEY (UserId) REFERENCES Users(Id)
     );
+END
+
+-- Add Calendar Events table
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='CalendarEvents' and xtype='U')
+BEGIN
+    CREATE TABLE CalendarEvents (
+        Id INT PRIMARY KEY IDENTITY(1,1),
+        Title NVARCHAR(200) NOT NULL,
+        Start DATETIME NOT NULL,
+        [End] DATETIME NOT NULL,
+        [Type] NVARCHAR(50) NOT NULL DEFAULT 'match',
+        Description NVARCHAR(MAX),
+        Location NVARCHAR(200),
+        CreatedBy INT NOT NULL,
+        CreatedAt DATETIME NOT NULL DEFAULT GETDATE(),
+        FOREIGN KEY (CreatedBy) REFERENCES Users(Id)
+    );
 END 

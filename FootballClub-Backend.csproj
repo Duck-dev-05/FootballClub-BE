@@ -29,4 +29,11 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.4.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="Models/AuthResponse.cs" Condition="Exists('Models/Requests/AuthResponse.cs')" />
+    <Compile Remove="Models/FacebookAuthRequest.cs" Condition="Exists('Models/Requests/FacebookAuthRequest.cs')" />
+    <Compile Remove="Models/GoogleAuthRequest.cs" Condition="Exists('Models/Requests/GoogleAuthRequest.cs')" />
+    <Compile Remove="Models/RoleUpdateRequest.cs" Condition="Exists('Models/Requests/RoleUpdateRequest.cs')" />
+  </ItemGroup>
+
 </Project>

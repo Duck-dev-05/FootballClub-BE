@@ -10,133 +10,110 @@ using System;
 using Google.Apis.Auth;
 using BCrypt.Net;
 using Microsoft.Extensions.Logging;
+using System.Threading.Tasks;
+using FootballClub_Backend.Models.Entities;
+using FootballClub_Backend.Models.Requests;
+using FootballClub_Backend.Exceptions;
 
 namespace FootballClub_Backend.Services;
 
 public class AuthService : IAuthService
 {
     private readonly ApplicationDbContext _context;
-    private readonly IConfiguration _configuration;
+    private readonly IJwtService _jwtService;
     private readonly ILogger<AuthService> _logger;
 
-    public AuthService(ApplicationDbContext context, IConfiguration configuration, ILogger<AuthService> logger)
+    public AuthService(
+        ApplicationDbContext context,
+        IJwtService jwtService,
+        ILogger<AuthService> logger)
     {
         _context = context;
-        _configuration = configuration;
+        _jwtService = jwtService;
         _logger = logger;
     }
 
     public string GetRequesterRole(ClaimsPrincipal user)
     {
-        return user.IsInRole("admin") ? "admin" : "user";
+        var roleClaim = user.FindFirst(ClaimTypes.Role);
+        return roleClaim?.Value ?? "user";
     }
 
-    public async Task<(bool isSuccess, string token)> Register(RegisterRequest request, string requesterRole)
+    public async Task<(bool success, string token)> Register(Models.Requests.RegisterRequest request, string requesterRole)
     {
-        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
-            return (false, "Email already registered");
+        var existingUser = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+        if (existingUser != null)
+            return (success: false, token: string.Empty);
 
-        var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.Password);
-        var user = new User
+        var user = new Models.Entities.User
         {
             Username = request.Username,
             Email = request.Email,
-            Password = hashedPassword,
-            Role = requesterRole == "admin" && request.Role != null ? request.Role : "user",
-            CreatedAt = DateTime.UtcNow
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            Role = requesterRole == "admin" ? request.Role ?? "user" : "user"
         };
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        return (true, GenerateJwtToken(user));
+        var token = GenerateJwtToken(user);
+        return (success: true, token: token);
     }
 
-    public async Task<(bool isSuccess, string token)> Login(LoginRequest request)
+    public async Task<(bool success, string token)> Login(Models.Requests.LoginRequest request)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
         if (user == null)
-            return (false, "Invalid credentials");
+            return (success: false, token: string.Empty);
 
-        if (!BCrypt.Net.BCrypt.Verify(request.Password, user.Password))
-            return (false, "Invalid credentials");
+        if (!BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+            return (success: false, token: string.Empty);
 
-        return (true, GenerateJwtToken(user));
+        var token = GenerateJwtToken(user);
+        return (success: true, token: token);
     }
 
-    public async Task<User> GetUserByEmail(string email)
+    public string GenerateJwtToken(Models.Entities.User user)
     {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
-        if (user == null)
-            throw new KeyNotFoundException("User not found");
-        return user;
+        return _jwtService.GenerateToken(user);
     }
 
-    public async Task<User> GetUserById(int id)
+    public async Task<Models.Entities.User?> GetUserByEmail(string email)
     {
-        var user = await _context.Users.FindAsync(id);
-        if (user == null)
-            throw new KeyNotFoundException("User not found");
-        return user;
+        return await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
     }
 
-    public async Task<IEnumerable<User>> GetAllUsersAsync()
+    public async Task<Models.Entities.User?> GetUserById(int id)
+    {
+        return await _context.Users.FindAsync(id);
+    }
+
+    public async Task<IEnumerable<Models.Entities.User>> GetAllUsersAsync()
     {
         return await _context.Users.ToListAsync();
     }
 
-    public async Task<bool> UpdateUserRoleAsync(int userId, string role)
+    public async Task<bool> UpdateUserRoleAsync(int userId, string newRole)
     {
         var user = await _context.Users.FindAsync(userId);
-        if (user == null)
-            return false;
+        if (user == null) return false;
 
-        user.Role = role;
+        user.Role = newRole;
         await _context.SaveChangesAsync();
         return true;
     }
 
-    public string GenerateJwtToken(User user)
+    public async Task<Models.Entities.User> GetOrCreateFacebookUserAsync(FacebookUserData userData)
     {
-        var jwtSettings = _configuration.GetSection("JWT");
-        var key = Encoding.ASCII.GetBytes(jwtSettings["Key"] ?? throw new InvalidOperationException("JWT Key is not configured"));
+        var user = await GetUserByEmail(userData.Email);
+        if (user != null) return user;
 
-        var tokenDescriptor = new SecurityTokenDescriptor
+        user = new Models.Entities.User
         {
-            Subject = new ClaimsIdentity(new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Email, user.Email),
-                new Claim(ClaimTypes.Role, user.Role),
-                new Claim(ClaimTypes.Name, user.Username)
-            }),
-            Expires = DateTime.UtcNow.AddHours(24),
-            Issuer = jwtSettings["Issuer"],
-            Audience = jwtSettings["Audience"],
-            SigningCredentials = new SigningCredentials(
-                new SymmetricSecurityKey(key),
-                SecurityAlgorithms.HmacSha256Signature)
-        };
-
-        var tokenHandler = new JwtSecurityTokenHandler();
-        var token = tokenHandler.CreateToken(tokenDescriptor);
-        return tokenHandler.WriteToken(token);
-    }
-
-    public async Task<User> GetOrCreateFacebookUserAsync(FacebookUserData userData)
-    {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == userData.Email);
-        if (user != null)
-            return user;
-
-        user = new User
-        {
-            Username = userData.Name,
             Email = userData.Email,
-            Password = string.Empty, // Facebook users don't need a password
-            Role = "user",
-            CreatedAt = DateTime.UtcNow,
-            FacebookId = userData.Id
+            Username = userData.Name,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()),
+            Role = "user"
         };
 
         _context.Users.Add(user);
@@ -144,32 +121,21 @@ public class AuthService : IAuthService
         return user;
     }
 
-    public async Task<User> GetOrCreateGoogleUser(GoogleJsonWebSignature.Payload payload)
+    public async Task<Models.Entities.User> GetOrCreateGoogleUser(GoogleJsonWebSignature.Payload payload)
     {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == payload.Email);
-        
-        if (user == null)
-        {
-            // Create new user
-            user = new User
-            {
-                Username = payload.Name,
-                Email = payload.Email,
-                Password = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()), // Random password
-                Role = "user",
-                CreatedAt = DateTime.UtcNow
-            };
+        var user = await GetUserByEmail(payload.Email);
+        if (user != null) return user;
 
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
-            
-            _logger.LogInformation("Created new user from Google login: {Email}", payload.Email);
-        }
-        else
+        user = new Models.Entities.User
         {
-            _logger.LogInformation("Existing user logged in via Google: {Email}", payload.Email);
-        }
+            Email = payload.Email,
+            Username = payload.Name,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString()),
+            Role = "user"
+        };
 
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
         return user;
     }
 } 
