@@ -10,10 +10,11 @@
 using System;
 using System.Reflection;
 
+[assembly: Microsoft.Extensions.Configuration.UserSecrets.UserSecretsIdAttribute("590f9129-0a9b-4974-8d25-0740b726c389")]
 [assembly: System.Reflection.AssemblyCompanyAttribute("FootballClub-Backend")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+fb6e90bbdeefe7443c948b6c8e6f8ba9445f22e8")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cc8159864c3e5071af8d92ebdd84cd607e627a1d")]
 [assembly: System.Reflection.AssemblyProductAttribute("FootballClub-Backend")]
 [assembly: System.Reflection.AssemblyTitleAttribute("FootballClub-Backend")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

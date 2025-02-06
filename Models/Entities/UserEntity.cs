@@ -1,28 +1,21 @@
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
 using System.ComponentModel.DataAnnotations;
 
 namespace FootballClub_Backend.Models.Entities;
 
 public class UserEntity
 {
-    [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
-    public string Id { get; set; } = string.Empty;
+    public int Id { get; set; }
 
-    [BsonElement("username")]
     [Required]
     public string Username { get; set; } = string.Empty;
 
-    [BsonElement("email")]
     [Required]
     [EmailAddress]
     public string Email { get; set; } = string.Empty;
 
-    [BsonElement("passwordHash")]
-    public string? PasswordHash { get; set; }
+    [Required]
+    public string PasswordHash { get; set; } = string.Empty;
 
-    [BsonElement("role")]
     public string Role { get; set; } = "user";
 
     [BsonElement("createdAt")]
