@@ -1,11 +1,13 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>FootballClub_Backend</RootNamespace>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    <UserSecretsId>590f9129-0a9b-4974-8d25-0740b726c389</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,12 +21,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Controllers\" />
-    <Folder Include="Services\" />
-    <Folder Include="Models\" />
-    <Folder Include="Data\" />
-    <Folder Include="Exceptions\" />
-    <Folder Include="Helpers\" />
+    <Compile Remove="Models/AuthResponse.cs" Condition="Exists('Models/Requests/AuthResponse.cs')" />
+    <Compile Remove="Models/FacebookAuthRequest.cs" Condition="Exists('Models/Requests/FacebookAuthRequest.cs')" />
+    <Compile Remove="Models/GoogleAuthRequest.cs" Condition="Exists('Models/Requests/GoogleAuthRequest.cs')" />
+    <Compile Remove="Models/RoleUpdateRequest.cs" Condition="Exists('Models/Requests/RoleUpdateRequest.cs')" />
   </ItemGroup>
 
-</Project> 
+</Project>

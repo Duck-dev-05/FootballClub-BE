@@ -1,4 +1,5 @@
 using Google.Apis.Auth;
+<<<<<<< HEAD
 using FootballClub_Backend.Models.Entities;
 using FootballClub_Backend.Models.Config;
 using FootballClub_Backend.Models;
@@ -41,11 +42,46 @@ public class SocialAuthService : ISocialAuthService
             };
 
             var payload = await GoogleJsonWebSignature.ValidateAsync(credential, settings);
+=======
+using FootballClub_Backend.Models;
+using System.Net.Http.Json;
+using FootballClub_Backend.Exceptions;
+using FootballClub_Backend.Models.Entities;
+using FootballClub_Backend.Helpers;
+
+namespace FootballClub_Backend.Services;
+
+public interface ISocialAuthService
+{
+    Task<User> AuthenticateGoogleUserAsync(string credential);
+    Task<User> AuthenticateFacebookUserAsync(string accessToken);
+}
+
+public class SocialAuthService : ISocialAuthService
+{
+    private readonly IAuthService _authService;
+    private readonly ILogger<SocialAuthService> _logger;
+
+    public SocialAuthService(
+        IAuthService authService,
+        ILogger<SocialAuthService> logger)
+    {
+        _authService = authService;
+        _logger = logger;
+    }
+
+    public async Task<User> AuthenticateGoogleUserAsync(string credential)
+    {
+        try
+        {
+            var payload = await SocialAuthHelper.ValidateGoogleToken(credential);
+>>>>>>> 2fb1476a74c18a73f96b820f9c5b95143924086b
             return await _authService.GetOrCreateGoogleUser(payload);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Google authentication failed");
+<<<<<<< HEAD
             throw new AuthenticationException("Failed to authenticate with Google", ex);
         }
     }
@@ -56,10 +92,23 @@ public class SocialAuthService : ISocialAuthService
         {
             var fbUser = await GetFacebookUserDataAsync(accessToken);
             return await _authService.GetOrCreateFacebookUserAsync(fbUser);
+=======
+            throw;
+        }
+    }
+
+    public async Task<User> AuthenticateFacebookUserAsync(string accessToken)
+    {
+        try
+        {
+            var userData = await SocialAuthHelper.ValidateFacebookToken(accessToken);
+            return await _authService.GetOrCreateFacebookUserAsync(userData);
+>>>>>>> 2fb1476a74c18a73f96b820f9c5b95143924086b
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Facebook authentication failed");
+<<<<<<< HEAD
             throw new AuthenticationException("Failed to authenticate with Facebook", ex);
         }
     }
@@ -78,4 +127,9 @@ public class SocialAuthService : ISocialAuthService
         return await response.Content.ReadFromJsonAsync<FacebookUserData>() 
             ?? throw new AuthenticationException("Invalid Facebook user data");
     }
+=======
+            throw;
+        }
+    }
+>>>>>>> 2fb1476a74c18a73f96b820f9c5b95143924086b
 } 

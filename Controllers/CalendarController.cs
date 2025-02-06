@@ -1,10 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using MongoDB.Driver;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using FootballClub_Backend.Models.Entities;
+using FootballClub_Backend.Services;
 using FootballClub_Backend.Data;
 using FootballClub_Backend.Exceptions;
 
@@ -16,14 +17,14 @@ namespace FootballClub_Backend.Controllers;
 public class CalendarController : ApiController
 {
     private readonly ILogger<CalendarController> _logger;
-    private readonly MongoDbContext _context;
+    private readonly ApplicationDbContext _context;
 
     public CalendarController(
         ILogger<CalendarController> logger, 
-        MongoDbContext context)
+        ApplicationDbContext context)
     {
-        _logger = logger;
-        _context = context;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _context = context ?? throw new ArgumentNullException(nameof(context));
     }
 
     [HttpGet]
@@ -31,7 +32,7 @@ public class CalendarController : ApiController
     {
         try
         {
-            var events = await _context.CalendarEvents.Find(_ => true).ToListAsync();
+            var events = await _context.CalendarEvents.ToListAsync();
             return Ok(events);
         }
         catch (Exception ex)
@@ -42,12 +43,16 @@ public class CalendarController : ApiController
     }
 
     [HttpPost]
+    [Authorize]
     public async Task<ActionResult<CalendarEvent>> CreateEvent(CalendarEvent calendarEvent)
     {
         try
         {
-            await _context.CalendarEvents.InsertOneAsync(calendarEvent);
-            return CreatedAtAction(nameof(GetEvents), new { id = calendarEvent.Id }, calendarEvent);
+            ValidateModel();
+            calendarEvent.CreatedBy = GetUserId();
+            _context.CalendarEvents.Add(calendarEvent);
+            await _context.SaveChangesAsync();
+            return HandleResult(calendarEvent);
         }
         catch (Exception ex)
         {
@@ -57,41 +62,49 @@ public class CalendarController : ApiController
     }
 
     [HttpPut("{id}")]
-    public async Task<ActionResult<CalendarEvent>> UpdateEvent(string id, CalendarEvent calendarEvent)
+    [Authorize]
+    public async Task<ActionResult<CalendarEvent>> UpdateEvent(int id, CalendarEvent calendarEvent)
     {
         try
         {
-            var result = await _context.CalendarEvents.ReplaceOneAsync(
-                e => e.Id == id,
-                calendarEvent);
+            var existingEvent = await _context.CalendarEvents.FindAsync(id);
+            if (existingEvent == null)
+                return NotFound(new { message = "Event not found" });
 
-            if (result.ModifiedCount == 0)
-                return NotFound();
+            if (existingEvent.CreatedBy != GetUserId() && GetUserRole() != "admin")
+                return Unauthorized(new { message = "Not authorized to update this event" });
 
-            return Ok(calendarEvent);
+            _context.Entry(existingEvent).CurrentValues.SetValues(calendarEvent);
+            await _context.SaveChangesAsync();
+            return HandleResult(calendarEvent);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error updating calendar event");
+            _logger.LogError(ex, "Error updating calendar event {Id}", id);
             return HandleError(ex, "Failed to update calendar event");
         }
     }
 
     [HttpDelete("{id}")]
-    public async Task<ActionResult> DeleteEvent(string id)
+    [Authorize]
+    public async Task<ActionResult> DeleteEvent(int id)
     {
         try
         {
-            var result = await _context.CalendarEvents.DeleteOneAsync(e => e.Id == id);
-            
-            if (result.DeletedCount == 0)
-                return NotFound();
+            var calendarEvent = await _context.CalendarEvents.FindAsync(id);
+            if (calendarEvent == null)
+                return NotFound(new { message = "Event not found" });
 
+            if (calendarEvent.CreatedBy != GetUserId() && GetUserRole() != "admin")
+                return Unauthorized(new { message = "Not authorized to delete this event" });
+
+            _context.CalendarEvents.Remove(calendarEvent);
+            await _context.SaveChangesAsync();
             return NoContent();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting calendar event");
+            _logger.LogError(ex, "Error deleting calendar event {Id}", id);
             return HandleError(ex, "Failed to delete calendar event");
         }
     }
