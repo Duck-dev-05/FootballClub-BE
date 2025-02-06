@@ -1,6 +1,0 @@
-## .NET Core
-bin/
-obj/
-*.dll
-*.exe
-*.pdb 
