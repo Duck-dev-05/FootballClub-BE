@@ -1,0 +1,8 @@
+D:\Code\FootballClubWebsite\FootballClub-BE\obj\Debug\net8.0\FootballClub-Backend.csproj.AssemblyReference.cache
+D:\Code\FootballClubWebsite\FootballClub-BE\obj\Debug\net8.0\FootballClub-Backend.GeneratedMSBuildEditorConfig.editorconfig
+D:\Code\FootballClubWebsite\FootballClub-BE\obj\Debug\net8.0\FootballClub-Backend.AssemblyInfoInputs.cache
+D:\Code\FootballClubWebsite\FootballClub-BE\obj\Debug\net8.0\FootballClub-Backend.AssemblyInfo.cs
+D:\Code\FootballClubWebsite\FootballClub-BE\obj\Debug\net8.0\FootballClub-Backend.csproj.CoreCompileInputs.cache
+D:\Code\FootballClubWebsite\FootballClub-BE\obj\Debug\net8.0\FootballClub-Backend.MvcApplicationPartsAssemblyInfo.cs
+D:\Code\FootballClubWebsite\FootballClub-BE\obj\Debug\net8.0\FootballClub-Backend.MvcApplicationPartsAssemblyInfo.cache
+D:\Code\FootballClubWebsite\FootballClub-BE\obj\Debug\net8.0\FootballClub-Backend.sourcelink.json
